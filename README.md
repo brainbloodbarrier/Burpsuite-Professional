@@ -1,266 +1,126 @@
-# Burpsuite-Professional — Code Review Plan & Findings
+# Burpsuite-Professional
 
-> This document replaces the original README with a structured code review plan, full findings, and arm64 macOS deployment requirements.
+Multi-platform installer and distribution for Burp Suite Professional. This repository provides shell, PowerShell, and Nix installers that download the pinned Burp JAR, attach the bundled `loader.jar` Java agent, and create platform-native launchers. It is not a web application.
 
-## Repository overview
+## Files overview
 
-This repository packages and installs Burp Suite Professional across Linux, macOS, Windows, and NixOS. It is not a web application; it is a distribution/installer project composed of:
+| File | Description |
+|------|-------------|
+| `install.sh` | Linux installer. Installs dependencies, clones the repo into `$HOME/Burpsuite-Professional`, downloads the Burp JAR, verifies its SHA-256 hash, and installs a `burpsuitepro` system launcher. |
+| `update.sh` | Linux updater. Refreshes the install directory, downloads the pinned Burp JAR, verifies the hash, and atomically replaces `/bin/burpsuitepro`. |
+| `install_macos.sh` | macOS installer. Requires a full JDK with `jpackage`. Creates a `burp` command-line launcher and a `~/Applications/Burp Suite Professional.app` bundle. |
+| `install.ps1` | Windows installer. Detects or downloads Oracle JDK 21 and JRE 8, downloads the Burp JAR, verifies the hash, and creates `Burp.bat` and `Burp-Suite-Pro.vbs`. |
+| `default.nix` | Nix derivation for `burpsuitepro`, reading `VERSION` and `BURP_SHA256`. |
+| `flake.nix` | Nix flake exposing the `burpsuitepro` package for supported systems. |
+| `help.sh` | Prints available commands and a short activation guide. |
+| `loader.jar` | Java agent / key loader bundled with the distribution. |
+| `launcher.jpg`, `burp_suite.ico`, `burp_suite.icns` | Launcher and application icons. |
+| `BURP_SHA256` | Expected SHA-256 hash of the downloaded Burp JAR. |
+| `LOADER_SHA256` | Expected SHA-256 hash of the bundled `loader.jar`. |
 
-- **Nix/NixOS packaging**: `flake.nix`, `flake.lock`, `default.nix`
-- **Linux installer/maintenance**: `install.sh`, `update.sh`
-- **macOS installer**: `install_macos.sh`
-- **Windows installer**: `install.ps1`
-- **Helper/documentation**: `help.sh`, `README.md`
-- **Release automation**: `.github/workflows/burp-pro.yml`
-- **Binary assets**: `loader.jar`, `launcher.jpg`, `burp_suite.icns`, `burp_suite.ico`
+## Versioning
 
-The core function of every installer is to download the official Burp Suite Professional JAR, place the existing `loader.jar` Java agent on the classpath, and expose a launcher command.
+`VERSION` and `BURP_SHA256` are the single sources of truth for the Burp Suite Professional JAR version and its SHA-256 hash.
 
----
+- All installers (`install.sh`, `update.sh`, `install_macos.sh`, `install.ps1`) read the version from `VERSION` and verify the downloaded JAR against `BURP_SHA256`.
+- The Nix derivation (`default.nix`) imports both files directly.
+- The CI workflow (`.github/workflows/burp-pro.yml`) reads both values and verifies the release artifact before publishing.
 
-## Baseline architecture
+If you need to update Burp Suite Professional, change both files together and verify the new hash before running any installer.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     User-facing entrypoints                  │
-│  README.md  │  help.sh  │  curl | bash / powershell / nix   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-        ▼                     ▼                     ▼
-   ┌─────────┐          ┌───────────┐         ┌──────────┐
-   │ install │          │ install_  │         │ install  │
-   │ .sh     │          │ macos.sh  │         │ .ps1     │
-   │ update  │          │           │         │          │
-   │ .sh     │          │           │         │          │
-   └────┬────┘          └─────┬─────┘         └────┬─────┘
-        │                     │                    │
-        ▼                     ▼                    ▼
-   ┌─────────┐           ┌─────────┐        ┌─────────────┐
-   │ apt +   │           │ brew +  │        │ Oracle JDK  │
-   │ wget    │           │ curl +  │        │ + JRE       │
-   │         │           │ jpackage│        │             │
-   └────┬────┘           └────┬────┘        └──────┬──────┘
-        │                     │                    │
-        ▼                     ▼                    ▼
-   ┌────────────────────────────────────────────────────────┐
-   │              Download burpsuite_pro_*.jar             │
-   │              Attach loader.jar as -javaagent          │
-   │              Launch with --add-opens / -noverify     │
-   └────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┴─────────────────────┐
-        │                                           │
-        ▼                                           ▼
-   ┌──────────┐                              ┌──────────────┐
-   │ default  │                              │ burp-pro.yml │
-   │ .nix     │                              │  (CI release)│
-   │ flake.nix│                              │              │
-   └──────────┘                              └──────────────┘
-```
+## Linux
 
----
-
-## Review plan
-
-The review is organized into six logical groups that map to the components above. Each group is evaluated against the high-confidence bug patterns: null/undefined safety, injection/command construction, resource handling, missing error handling, dead/unused code, wrong-variable/shadowing, type/ordering assumptions, and security-relevant input validation.
-
-### Group 1 — Nix packaging correctness
-**Files**: `flake.nix`, `flake.lock`, `default.nix`
-
-- Verify the nixpkgs input is pinned and the lock file matches.
-- Confirm the Burp JAR `version`, `urls`, and SRI `hash` are consistent and still resolvable.
-- Check that `buildFHSEnv` options and `runScript` quoting are correct.
-- Look for hardcoded version drift between `default.nix` and the rest of the repo.
-- Validate `meta.homepage`, `meta.license`, and `mainProgram` fields.
-
-### Group 2 — Linux installer security & correctness
-**Files**: `install.sh`, `update.sh`
-
-- Check `sudo` usage and whether non-root execution paths fail safely.
-- Inspect command construction with `$(pwd)` for quoting/escaping issues.
-- Verify version consistency between `install.sh` and `update.sh`.
-- Confirm error handling (`set -e`, exit codes) and launcher creation.
-- Validate `/bin/burpsuitepro` installation assumption.
-
-### Group 3 — macOS installer security & correctness
-**Files**: `install_macos.sh`
-
-- Verify shebang, dependency checks, and Java/JDK availability.
-- Inspect `curl` download URL and version variable.
-- Check `java` and `jpackage` invocation and quoting.
-- Inspect the generated `burp` wrapper for `$(pwd)` portability issues.
-- Validate app bundle paths and icon references.
-
-### Group 4 — Windows installer security & correctness
-**Files**: `install.ps1`
-
-- Check Oracle JDK-21 and JRE-8 download URLs and bundle IDs.
-- Verify Java detection logic (deprecated `Win32_Product` usage).
-- Inspect Burp.bat command construction for missing spaces or quoting bugs.
-- Validate VBS wrapper path handling.
-- Confirm `loader.jar` fallback download source and integrity checks.
-
-### Group 5 — Release workflow security & correctness
-**Files**: `.github/workflows/burp-pro.yml`
-
-- Verify unauthenticated download from PortSwigger and lack of hash verification.
-- Check checksum step semantics (compute vs. verify).
-- Inspect release asset deletion scope and GitHub API usage.
-- Validate runner architecture choice (`ubuntu-24.04-arm`).
-- Confirm secrets handling (`GITHUB_TOKEN`).
-
-### Group 6 — Docs/helper consistency
-**Files**: `README.md`, `help.sh`
-
-- Cross-check install instructions against actual script behavior.
-- Verify version numbers, filenames, and command names in docs.
-- Confirm `help.sh` arguments and color handling are safe.
-- Check README macOS section for file-name typos.
-
----
-
-## Full findings summary
-
-### [P0] install_macos.sh downloads wrong JAR version for the macOS title
-**File**: `install_macos.sh`, line 5
+Run the installer:
 
 ```bash
-version=2025
-url="https://portswigger.net/burp/releases/download?product=pro&type=Jar"
-curl -L "$url" -o "burpsuite_pro_v$version.jar"
+./install.sh
 ```
 
-The script names the file `burpsuite_pro_v2025.jar` but the URL requests the **latest** JAR, currently 2026.x. The rest of the script uses `burpsuite_pro_v$version.jar` for the launcher and `jpackage` bundle, so it works by coincidence. However, the on-disk filename is misleading, and the README references `burpsuite_pro_v2025.5.6.jar`. This version inconsistency will break the `burp` shortcut if the user re-runs the script from a directory where the filename no longer matches. Treat as a deployment defect.
+The script:
 
-### [P0] install_macos.sh silently fails if Java or jpackage is missing
-**File**: `install_macos.sh`, lines 17-29
+1. Updates packages and installs `git`, `wget`, and `openjdk-21-jre` via `apt` (requires `sudo`).
+2. Clones or pulls the repo into `$HOME/Burpsuite-Professional`.
+3. Downloads `burpsuite_pro_v${VERSION}.jar` from the GitHub release mirror.
+4. Verifies the JAR against `BURP_SHA256`.
+5. Writes a `burpsuitepro` launcher script and copies it to `/bin/burpsuitepro` (requires `sudo` unless already root).
+6. Starts the key loader and Burp Suite Professional.
 
-The script runs `java`, `jpackage`, and `cp` without checking prerequisites. On a clean arm64 Mac, the system `/usr/bin/java` stub prints an error and exits non-zero, but the script does not `set -e`, so failures are ignored. `jpackage` is part of the JDK and is not installed by the script, so the app bundle step will silently fail on a JRE-only system.
-
-**arm64 macOS requirement**: a full JDK (not just JRE) that includes `jpackage` is required. The README mentions `openjdk@17`, which is sufficient because Homebrew's `openjdk@17` package is a JDK and includes `jpackage`.
-
-### [P1] macOS `burp` wrapper hardcodes `$(pwd)` and breaks when moved or run from another directory
-**File**: `install_macos.sh`, lines 19-29
+After installation, run Burp from anywhere with:
 
 ```bash
-java ... -javaagent:$(pwd)/loader.jar ... -jar $(pwd)/burpsuite_pro_v$version.jar &
+burpsuitepro
 ```
 
-The generated `burp` script uses `$(pwd)` to locate `loader.jar` and the Burp JAR. If the user follows the README and copies `burp` to `/usr/local/bin/burp`, running it from anywhere other than the original clone directory will fail with "Unable to access jarfile". This contradicts the README's claim of global use.
+To update later, run `update.sh` from the install directory or re-run `install.sh`.
 
-### [P1] install.ps1 uses deprecated Win32_Product WMI query
-**File**: `install.ps1`, lines 5 and 14
+## macOS
+
+Run the installer:
+
+```bash
+./install_macos.sh
+```
+
+Prerequisites:
+
+- A full JDK that includes `jpackage` (e.g., `brew install openjdk@17`). A JRE-only installation is not sufficient.
+- `git` and `curl` (usually installed with the JDK or via Homebrew).
+
+The script:
+
+1. Clones or pulls the repo into `$HOME/Burpsuite-Professional`.
+2. Downloads `burpsuite_pro_v${VERSION}.jar` and verifies its SHA-256 hash.
+3. Starts the key loader and Burp Suite Professional.
+4. Creates a `burp` launcher in `$HOME/Burpsuite-Professional` that changes into the install directory before launching, so it works from any working directory.
+5. Uses `jpackage` to build `~/Applications/Burp Suite Professional.app`.
+
+After installation, run from the install directory:
+
+```bash
+~/Burpsuite-Professional/burp
+```
+
+Or open the app bundle from `~/Applications/Burp Suite Professional.app`.
+
+## Windows
+
+Open PowerShell and run:
 
 ```powershell
-$jdk21 = Get-WmiObject -Class Win32_Product ...
-$jre8 = Get-WmiObject -Class Win32_Product ...
+.\install.ps1
 ```
 
-Microsoft documentation warns that `Win32_Product` triggers a consistency check of installed packages and is slow/unreliable. Using it in an installer can cause performance issues and false negatives. The script should query registry paths or use `Get-ItemProperty` under `HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`.
+The script:
 
-### [P1] Windows Burp.bat has a missing space between Java `--add-opens` flags
-**File**: `install.ps1`, line 40
+1. Checks the registry for Oracle JDK 21 and JRE 8; downloads and installs them if either is missing.
+2. Downloads `burpsuite_pro_v${VERSION}.jar` from the GitHub release mirror.
+3. Verifies the JAR against `BURP_SHA256`.
+4. Creates `Burp.bat` in the current directory with the full Java invocation.
+5. Creates `Burp-Suite-Pro.vbs` for background execution.
+6. Starts the key loader and Burp Suite Professional.
 
-```powershell
-$path = "java --add-opens=java.desktop/javax.swing=ALL-UNNAMED--add-opens=java.base/java.lang=ALL-UNNAMED ..."
-```
+After installation, double-click `Burp-Suite-Pro.vbs` or run `Burp.bat` from the directory where you ran `install.ps1`.
 
-There is no space between `ALL-UNNAMED` and `--add-opens=java.base/java.lang`. This produces an invalid JVM argument and Burp will fail to start from `Burp.bat`.
+## Nix/NixOS
 
-### [P1] Linux install.sh and update.sh download from different sources with mismatched versions
-**Files**: `install.sh`, line 11; `update.sh`, line 11
-
-`install.sh` uses `version=2026`. `update.sh` uses `version=2025`. Both download from the same GitHub release URL and both write `/bin/burpsuitepro`. A user running `install.sh` then later `update.sh` will downgrade from 2026 to 2025 without warning. The versions should be centralized in one source of truth.
-
-### [P1] Linux scripts write to `/bin` and assume root without `set -e`
-**Files**: `install.sh`, lines 14-18; `update.sh`, lines 14-18
+Build and run with:
 
 ```bash
-cp burpsuitepro /bin/burpsuitepro
-(./burpsuitepro)
+nix build .#burpsuitepro
+./result/bin/burpsuitepro
 ```
 
-`cp` to `/bin` requires root, but the scripts only use `sudo` for `apt`. If run as a normal user, `cp` fails silently (no `set -e`) and the script then tries to execute `./burpsuitepro`, which may succeed locally but leaves the system launcher missing.
+The flake currently supports only `x86_64-linux` because `default.nix` uses `buildFHSEnv`, which is Linux-specific. On Apple Silicon or other unsupported systems, use `install_macos.sh` instead.
 
-### [P2] Workflow downloads unverified JAR and only computes checksums after the fact
-**File**: `.github/workflows/burp-pro.yml`, lines 24-28
+## Security notes
 
-```yaml
-axel -o burpsuite_pro_v2026.jar https://portswigger.net/burp/releases/download?product=pro&type=Jar
-```
+- Do not commit `loader.jar` activation keys, logs, or other generated artifacts.
+- The Burp JAR hash in `BURP_SHA256` is verified by every installer and by CI before a release is published.
+- The bundled `loader.jar` hash in `LOADER_SHA256` is also verified by every installer before execution.
+- All downloaded binaries are pinned to the version in `VERSION` and the hash in `BURP_SHA256`; the installers fail if the hash does not match.
+- Keep `VERSION`, `BURP_SHA256`, and `LOADER_SHA256` in sync and verify hashes from a trusted source before updating them.
+- Oracle JDK 21 / JRE 8 installer downloads on Windows are not hash-verified by this project because Oracle does not publish stable, machine-readable hashes for those executables. Pre-install the JDK/JRE yourself if you do not want to trust Oracle's distribution channel.
+## Attributions
 
-The workflow downloads the latest JAR without a pinned hash, then computes MD5/SHA1/SHA256/SHA512 of whatever was downloaded. There is no comparison against a known-good hash, so a corrupted or malicious artifact would be released as-is. This is a supply-chain integrity gap.
-
-### [P2] default.nix version/hash mismatch with project branding
-**File**: `default.nix`, line 4
-
-```nix
-version = "2025.1.1";
-```
-
-The README and workflow advertise "v2026-latest", `install.sh` uses `2026`, and `install_macos.sh`/`update.sh` use `2025`, but the Nix derivation pins `2025.1.1` with a fixed SRI hash. The package will not fetch the latest version and may fail when PortSwigger removes that exact URL or when the hash no longer matches a redirected download.
-
-### [P2] flake.nix only supports x86_64-linux
-**File**: `flake.nix`, line 12
-
-```nix
-system = "x86_64-linux";
-```
-
-There is no `aarch64-darwin` (arm64 macOS) output. Users on Apple Silicon cannot install via the Nix flake even though the rest of the project provides a macOS install script. For arm64 macOS, the only supported path is `install_macos.sh` + Homebrew `openjdk@17`.
-
-### [P2] install_macos.sh lacks shebang and dependency checks
-**File**: `install_macos.sh`, line 1
-
-The file begins with `git clone ...` instead of `#!/bin/bash`. While `curl ... | bash` will usually run it under bash, execution via `chmod +x install_macos.sh; ./install_macos.sh` will fail because the kernel cannot determine the interpreter.
-
-### [P3] README macOS instructions reference nonexistent `installmacos.sh`
-**File**: `README.md`, macOS section
-
-The README says:
-
-> The `installmacos.sh` script creates a `burp` script...
-
-But the actual file in the repo is `install_macos.sh`. This typo will confuse users trying to follow the local-install path.
-
-### [P3] README references `burpsuite_pro_v2025.5.6.jar` that does not match any script
-**File**: `README.md`, macOS Notes section
-
-The README says to run `burp` from the directory containing `loader.jar` and `burpsuite_pro_v2025.5.6.jar`, but no script downloads that filename. `install_macos.sh` writes `burpsuite_pro_v2025.jar`.
-
----
-
-## arm64 macOS deployment requirements
-
-Based on `install_macos.sh` and local environment verification, a clean arm64 Mac needs the following before deployment:
-
-1. **Homebrew**
-   ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-   ```
-   The script assumes `brew` is available but does not install it.
-
-2. **A full JDK** (not just a JRE), because `jpackage` is required for the app bundle step:
-   ```bash
-   brew install git openjdk@17
-   ```
-   The system `/usr/bin/java` stub is insufficient and will cause silent failures.
-
-3. **Command-line developer tools or Xcode** may be required for `jpackage` app-image signing/notarization on macOS. The script does not handle this.
-
-4. **Run from a stable directory** instead of piping directly to bash if you want the generated `burp` wrapper and `.app` bundle to remain usable, because both rely on `$(pwd)`.
-
----
-
-## Overall summary
-
-The repository is a collection of platform installers with several real correctness issues. The highest-priority defects are version drift across Linux/macOS/Nix scripts, the missing-space bug in the Windows batch file, and the macOS script's silent failures and non-portable `$(pwd)` launcher. For arm64 macOS specifically, the install path is unsupported by the Nix flake and requires manual Homebrew JDK setup.
-
----
-
-## Original project attribution
-
-- Loader.jar: [h3110w0r1d-y/BurpLoaderKeygen](https://github.com/h3110w0r1d-y/BurpLoaderKeygen)
+- `loader.jar`: [h3110w0r1d-y/BurpLoaderKeygen](https://github.com/h3110w0r1d-y/BurpLoaderKeygen)
 - Script foundation: [cyb3rzest/Burp-Suite-Pro](https://github.com/cyb3rzest/Burp-Suite-Pro)
