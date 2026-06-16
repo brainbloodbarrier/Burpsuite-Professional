@@ -2,10 +2,12 @@ name: Burpsuite Professional
 
 on:
   workflow_dispatch:
+  pull_request:
   release:
     types: [published]
   schedule:
     - cron: "0 0 * * 0"
+
     
 jobs:
   download-and-release:
@@ -123,4 +125,35 @@ jobs:
           downloads/sha256
           downloads/sha512
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Install bats
+      run: |
+        sudo apt update
+        sudo apt install -y bats
+
+    - name: Run bats tests
+      run: |
+        bash -n install.sh update.sh install_macos.sh lib.sh bootstrap.sh help.sh
+        bats tests/bats/*.bats
+
+    - name: Install Pester and run PowerShell tests
+      shell: pwsh
+      run: |
+        Install-Module Pester -Force -SkipPublisherCheck
+        Invoke-Pester -Path tests/pester
+
+    - name: Setup Nix
+      uses: cachix/install-nix-action@v27
+      with:
+        github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build Nix package
+      run: nix build .#burpsuitepro
