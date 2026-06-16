@@ -1,6 +1,26 @@
 # Set Wget Progress to Silent, Becuase it slows down Downloading by 50x
 echo "Setting Wget Progress to Silent, Becuase it slows down Downloading by 50x`n"
 $ProgressPreference = 'SilentlyContinue'
+# Hash helpers for locally downloaded Oracle installers
+function Read-NormalizedHash {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -Path $Path)) { throw "Hash file not found: $Path" }
+    return (Get-Content -Raw -Path $Path).Trim().ToLower()
+}
+
+function Confirm-FileHash {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$ExpectedSha256
+    )
+    if (-not (Test-Path -Path $Path)) { throw "File not found for hash check: $Path" }
+    $actual = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
+    if ($actual -ne $ExpectedSha256) {
+        throw "SHA-256 mismatch for $Path. Expected $ExpectedSha256, got $actual."
+    }
+    Write-Host "SHA-256 verified for $Path"
+}
+
 
 # Check JDK-21 Availability or Download JDK-21
 $UninstallPaths = @(
@@ -19,6 +39,7 @@ $Jdk21 = $UninstallPaths | ForEach-Object {
 if (!($Jdk21)) {
     echo "`t`tDownloading Java JDK-21 ...."
     wget "https://download.oracle.com/java/21/archive/jdk-21_windows-x64_bin.exe" -O jdk-21.exe
+    Confirm-FileHash -Path 'jdk-21.exe' -ExpectedSha256 (Read-NormalizedHash -Path 'JDK21_SHA256')
     echo "`n`t`tJDK-21 Downloaded, lets start the Installation process"
     start -wait jdk-21.exe
     rm jdk-21.exe
@@ -40,6 +61,7 @@ $Jre8 = $UninstallPaths | ForEach-Object {
 if (!($Jre8)) {
     echo "`n`t`tDownloading Java JRE ...."
     wget "https://javadl.oracle.com/webapps/download/AutoDL?BundleId=247947_0ae14417abb444ebb02b9815e2103550" -O jre-8.exe
+    Confirm-FileHash -Path 'jre-8.exe' -ExpectedSha256 (Read-NormalizedHash -Path 'JRE8_SHA256')
     echo "`n`t`tJRE-8 Downloaded, lets start the Installation process"
     start -wait jre-8.exe
     rm jre-8.exe
