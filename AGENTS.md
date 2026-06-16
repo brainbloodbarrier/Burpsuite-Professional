@@ -8,6 +8,9 @@ This repository packages and installs Burp Suite Professional across Linux, macO
 - `install_macos.sh` — macOS installer (`curl`/`jpackage`)
 - `install.ps1` — Windows installer (PowerShell)
 - `update.sh` — Linux updater
+- `lib.sh` — Shared bash helpers (hash, version, download)
+- `lib.ps1` — Shared PowerShell helpers
+- `bootstrap.sh` — One-liner bootstrap that downloads `install.sh` + `lib.sh`
 - `default.nix` / `flake.nix` / `flake.lock` — Nix/NixOS packaging
 - `.github/workflows/burp-pro.yml` — CI release workflow
 - `help.sh` — CLI helper that lists available scripts
@@ -18,6 +21,12 @@ This repository packages and installs Burp Suite Professional across Linux, macO
 There is no build system or test suite. Verify scripts locally by reviewing and running them in a safe environment:
 
 ```bash
+# Syntax check all bash scripts
+bash -n install.sh update.sh install_macos.sh lib.sh bootstrap.sh help.sh
+
+# Lint bash scripts
+shellcheck install.sh update.sh install_macos.sh lib.sh bootstrap.sh help.sh
+
 # List available commands
 ./help.sh
 
@@ -33,12 +42,13 @@ nix build .#burpsuitepro
 
 ## Coding Style and Naming Conventions
 
-- Shell scripts use `#!/bin/bash` except `install_macos.sh`, which currently lacks a shebang.
-- Use `set -euo pipefail` in new bash scripts for safer execution.
+- Shell scripts use `#!/bin/bash` + `set -euo pipefail`.
+- New shared bash helpers go in `lib.sh` and are sourced by installers using `$SCRIPT_DIR/lib.sh`.
+- New shared PowerShell helpers go in `lib.ps1` and are dot-sourced using `Join-Path $PSScriptRoot 'lib.ps1'`.
 - Quote all variable expansions, especially paths and URLs.
 - Prefer absolute paths or `$BASH_SOURCE`/`$0` over `$(pwd)` in generated launchers.
 - PowerShell variables use `PascalCase`; batch output is generated inline.
-- Version numbers must be centralized. Currently `2025`, `2026`, and `2025.1.1` are used inconsistently across files.
+- Version numbers must be centralized. `VERSION`, `BURP_SHA256`, and `LOADER_SHA256` are the single sources of truth.
 
 ## Testing Guidelines
 
@@ -48,10 +58,9 @@ No automated tests exist. Manual verification checklist:
 2. Confirm the generated launcher can start from a different working directory.
 3. Check that `loader.jar` is present and referenced correctly as a Java agent.
 4. On macOS, verify a full JDK with `jpackage` is installed, not just a JRE.
+5. Run `bash -n` and `shellcheck` on every modified `.sh` file before committing.
 
 ## Commit and Pull Request Guidelines
-
-Recent commit history is sparse (`Fix`, `docs: replace README.md...`). When contributing:
 
 - Use descriptive commit messages in the format: `area: what changed` (for example, `install.sh: add set -euo pipefail`).
 - One logical change per commit.
