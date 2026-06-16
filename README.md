@@ -110,7 +110,7 @@ nix build .#burpsuitepro
 ./result/bin/burpsuitepro
 ```
 
-The flake currently supports only `x86_64-linux` because `default.nix` uses `buildFHSEnv`, which is Linux-specific. On Apple Silicon or other unsupported systems, use `install_macos.sh` instead.
+The flake supports `x86_64-linux`, `aarch64-linux`, `aarch64-darwin` and `x86_64-darwin`. Linux systems use an FHS environment (`buildFHSEnv`), while macOS uses a native `mkDerivation` wrapper. On Apple Silicon or other unsupported systems, you can also use `install_macos.sh`.
 
 ## Security notes
 

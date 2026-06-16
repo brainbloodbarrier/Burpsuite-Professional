@@ -8,7 +8,7 @@ This repository packages and installs Burp Suite Professional across Linux, macO
 - `install_macos.sh` — macOS installer (`curl`/`jpackage`)
 - `install.ps1` — Windows installer (PowerShell)
 - `update.sh` — Linux updater
-- `default.nix` / `flake.nix` / `flake.lock` — Nix/NixOS packaging
+- `default.nix` / `darwin.nix` / `flake.nix` / `flake.lock` — Nix/NixOS packaging (Linux uses `default.nix` with FHS, Darwin uses `darwin.nix`)
 - `.github/workflows/burp-pro.yml` — CI release workflow
 - `help.sh` — CLI helper that lists available scripts
 - Binary assets: `loader.jar`, `launcher.jpg`, `burp_suite.icns`, `burp_suite.ico`
@@ -33,8 +33,7 @@ nix build .#burpsuitepro
 
 ## Coding Style and Naming Conventions
 
-- Shell scripts use `#!/bin/bash` except `install_macos.sh`, which currently lacks a shebang.
-- Use `set -euo pipefail` in new bash scripts for safer execution.
+- Shell scripts use `#!/bin/bash` + `set -euo pipefail`.
 - Quote all variable expansions, especially paths and URLs.
 - Prefer absolute paths or `$BASH_SOURCE`/`$0` over `$(pwd)` in generated launchers.
 - PowerShell variables use `PascalCase`; batch output is generated inline.
@@ -42,12 +41,11 @@ nix build .#burpsuitepro
 
 ## Testing Guidelines
 
-No automated tests exist. Manual verification checklist:
-
 1. Run each installer in a fresh VM or container.
 2. Confirm the generated launcher can start from a different working directory.
 3. Check that `loader.jar` is present and referenced correctly as a Java agent.
 4. On macOS, verify a full JDK with `jpackage` is installed, not just a JRE.
+5. On Nix, run `nix build .#burpsuitepro` on both Linux (`x86_64-linux`, `aarch64-linux`) and Darwin (`aarch64-darwin`, `x86_64-darwin`) before changing the flake.
 
 ## Commit and Pull Request Guidelines
 
