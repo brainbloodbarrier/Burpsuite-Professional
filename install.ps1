@@ -2,6 +2,10 @@
 echo "Setting Wget Progress to Silent, Becuase it slows down Downloading by 50x`n"
 $ProgressPreference = 'SilentlyContinue'
 
+# Load shared helpers
+$LibPath = Join-Path $PSScriptRoot 'lib.ps1'
+. $LibPath
+
 # Check JDK-21 Availability or Download JDK-21
 $UninstallPaths = @(
     'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
@@ -50,24 +54,14 @@ if (!($Jre8)) {
 
 # Download Burpsuite Professional
 Write-Host "Downloading Burp Suite Professional Latest..."
-$Version = if ($PSScriptRoot) { (Get-Content -Raw -Path (Join-Path $PSScriptRoot 'VERSION')).Trim() } else { (Get-Content -Raw -Path 'VERSION').Trim() }
-$ExpectedSha256 = if ($PSScriptRoot) {
-    (Get-Content -Raw -Path (Join-Path $PSScriptRoot 'BURP_SHA256')).Trim()
-} else {
-    (Get-Content -Raw -Path 'BURP_SHA256').Trim()
-}
+Read-BurpVersion
+$ExpectedSha256 = Read-NormalizedValue -Path 'BURP_SHA256'
 
-$JarFile = "burpsuite_pro_v$Version.jar"
-try {
-    Invoke-WebRequest -Uri "https://github.com/xiv3r/Burpsuite-Professional/releases/download/burpsuite-pro/burpsuite_pro_v$Version.jar" `
-      -OutFile $JarFile -UseBasicParsing -ErrorAction Stop
-} catch {
-    throw "Failed to download Burp Suite Professional JAR: $_"
-}
-$ActualHash = (Get-FileHash -Path $JarFile -Algorithm SHA256).Hash.ToUpper()
-if ($ActualHash -ne $ExpectedSha256.ToUpper()) {
-    throw "SHA-256 mismatch for $JarFile. Expected $ExpectedSha256, got $ActualHash."
-}
+$JarFile = "burpsuite_pro_v$BurpVersion.jar"
+Invoke-DownloadWithHash `
+    -Url "https://github.com/xiv3r/Burpsuite-Professional/releases/download/burpsuite-pro/burpsuite_pro_v$BurpVersion.jar" `
+    -OutFile $JarFile `
+    -ExpectedSha256 $ExpectedSha256
 
 # Download loader if it not exists
 if (!(Test-Path loader.jar)){
@@ -79,23 +73,13 @@ if (!(Test-Path loader.jar)){
 }
 
 # Verify bundled loader.jar
-$ExpectedLoaderSha256 = if ($PSScriptRoot) {
-    (Get-Content -Raw -Path (Join-Path $PSScriptRoot 'LOADER_SHA256')).Trim()
-} else {
-    (Get-Content -Raw -Path 'LOADER_SHA256').Trim()
-}
-$ActualLoaderHash = (Get-FileHash -Path loader.jar -Algorithm SHA256).Hash.ToUpper()
-if ($ActualLoaderHash -ne $ExpectedLoaderSha256.ToUpper()) {
-    throw "SHA-256 mismatch for loader.jar. Expected $ExpectedLoaderSha256, got $ActualLoaderHash."
-}
-
+Test-LoaderHash
 
 # Creating Burp.bat file with command for execution
 if (Test-Path burp.bat) {rm burp.bat}
-$Path = "java --add-opens=java.desktop/javax.swing=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm.tree=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm.Opcodes=ALL-UNNAMED -javaagent:`"$pwd\loader.jar`" -noverify -jar `"$pwd\burpsuite_pro_v$Version.jar`""
+$Path = "java --add-opens=java.desktop/javax.swing=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm.tree=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm.Opcodes=ALL-UNNAMED -javaagent:`"$pwd\loader.jar`" -noverify -jar `"$pwd\burpsuite_pro_v$BurpVersion.jar`""
 $Path | add-content -path Burp.bat
 echo "`nBurp.bat file is created"
-
 
 # Creating Burp-Suite-Pro.vbs File for background execution
 if (Test-Path Burp-Suite-Pro.vbs) {
@@ -112,4 +96,4 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";"
 echo "`n`nStarting Keygenerator ...."
 Start-Process -FilePath java.exe -ArgumentList '-jar', 'loader.jar'
 echo "`n`nStarting Burp Suite Professional"
-java --add-opens=java.desktop/javax.swing=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm.tree=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm.Opcodes=ALL-UNNAMED -javaagent:"loader.jar" -noverify -jar "burpsuite_pro_v$Version.jar"
+java --add-opens=java.desktop/javax.swing=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm.tree=ALL-UNNAMED --add-opens=java.base/jdk.internal.org.objectweb.asm.Opcodes=ALL-UNNAMED -javaagent:"loader.jar" -noverify -jar "burpsuite_pro_v$BurpVersion.jar"
