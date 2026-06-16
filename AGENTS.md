@@ -12,13 +12,15 @@ This repository packages and installs Burp Suite Professional across Linux, macO
 - `lib.ps1` — Shared PowerShell helpers
 - `bootstrap.sh` — One-liner bootstrap that downloads `install.sh` + `lib.sh`
 - `default.nix` / `flake.nix` / `flake.lock` — Nix/NixOS packaging
-- `.github/workflows/burp-pro.yml` — CI release workflow
+- `.github/workflows/burp-pro.yml` — CI release and test workflow
 - `help.sh` — CLI helper that lists available scripts
+- `tests/bats` — `bats` tests for bash scripts and `lib.sh`
+- `tests/pester` — `Pester` tests for `lib.ps1`
 - Binary assets: `loader.jar`, `launcher.jpg`, `burp_suite.icns`, `burp_suite.ico`
 
 ## Build, Test, and Development Commands
 
-There is no build system or test suite. Verify scripts locally by reviewing and running them in a safe environment:
+There is no build system. Verify scripts locally by reviewing, testing, and running them in a safe environment:
 
 ```bash
 # Syntax check all bash scripts
@@ -27,11 +29,20 @@ bash -n install.sh update.sh install_macos.sh lib.sh bootstrap.sh help.sh
 # Lint bash scripts
 shellcheck install.sh update.sh install_macos.sh lib.sh bootstrap.sh help.sh
 
+# Run bats tests (requires bats installed)
+bats tests/bats/*.bats
+
 # List available commands
 ./help.sh
 
 # Inspect an installer before execution
 cat install.sh
+```
+
+For PowerShell tests (requires Pester):
+
+```powershell
+Invoke-Pester -Path tests/pester
 ```
 
 For Nix:
@@ -52,7 +63,13 @@ nix build .#burpsuitepro
 
 ## Testing Guidelines
 
-No automated tests exist. Manual verification checklist:
+Automated tests live in `tests/`:
+
+1. `bats tests/bats/*.bats` covers bash helpers and script entry points.
+2. `Invoke-Pester -Path tests/pester` covers PowerShell helpers.
+3. CI runs both suites plus a `nix build .#burpsuitepro` smoke test on every PR.
+
+Manual verification checklist (for releases and installer changes):
 
 1. Run each installer in a fresh VM or container.
 2. Confirm the generated launcher can start from a different working directory.
