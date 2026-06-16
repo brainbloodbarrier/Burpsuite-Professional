@@ -11,6 +11,8 @@ This repository packages and installs Burp Suite Professional across Linux, macO
 - `default.nix` / `flake.nix` / `flake.lock` — Nix/NixOS packaging
 - `.github/workflows/burp-pro.yml` — CI release workflow
 - `help.sh` — CLI helper that lists available scripts
+- `VERSION`, `BURP_SHA256`, `LOADER_SHA256` — single sources of truth for Burp JAR and loader
+- `JDK21_SHA256`, `JRE8_SHA256` — expected hashes for Oracle JDK/JRE installers on Windows
 - Binary assets: `loader.jar`, `launcher.jpg`, `burp_suite.icns`, `burp_suite.ico`
 
 ## Build, Test, and Development Commands
@@ -18,6 +20,12 @@ This repository packages and installs Burp Suite Professional across Linux, macO
 There is no build system or test suite. Verify scripts locally by reviewing and running them in a safe environment:
 
 ```bash
+# Syntax check all bash scripts
+bash -n install.sh update.sh install_macos.sh help.sh
+
+# Lint bash scripts
+shellcheck install.sh update.sh install_macos.sh help.sh
+
 # List available commands
 ./help.sh
 
@@ -33,12 +41,12 @@ nix build .#burpsuitepro
 
 ## Coding Style and Naming Conventions
 
-- Shell scripts use `#!/bin/bash` except `install_macos.sh`, which currently lacks a shebang.
+- Shell scripts use `#!/bin/bash` + `set -euo pipefail`.
 - Use `set -euo pipefail` in new bash scripts for safer execution.
 - Quote all variable expansions, especially paths and URLs.
 - Prefer absolute paths or `$BASH_SOURCE`/`$0` over `$(pwd)` in generated launchers.
 - PowerShell variables use `PascalCase`; batch output is generated inline.
-- Version numbers must be centralized. Currently `2025`, `2026`, and `2025.1.1` are used inconsistently across files.
+- Version numbers and binary hashes must be centralized in their respective files at the repo root.
 
 ## Testing Guidelines
 
@@ -48,10 +56,9 @@ No automated tests exist. Manual verification checklist:
 2. Confirm the generated launcher can start from a different working directory.
 3. Check that `loader.jar` is present and referenced correctly as a Java agent.
 4. On macOS, verify a full JDK with `jpackage` is installed, not just a JRE.
+5. On Windows, confirm `JDK21_SHA256` and `JRE8_SHA256` match the actual Oracle installer bytes before updating them.
 
 ## Commit and Pull Request Guidelines
-
-Recent commit history is sparse (`Fix`, `docs: replace README.md...`). When contributing:
 
 - Use descriptive commit messages in the format: `area: what changed` (for example, `install.sh: add set -euo pipefail`).
 - One logical change per commit.

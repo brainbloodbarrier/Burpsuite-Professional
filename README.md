@@ -119,7 +119,7 @@ The flake currently supports only `x86_64-linux` because `default.nix` uses `bui
 - The bundled `loader.jar` hash in `LOADER_SHA256` is also verified by every installer before execution.
 - All downloaded binaries are pinned to the version in `VERSION` and the hash in `BURP_SHA256`; the installers fail if the hash does not match.
 - Keep `VERSION`, `BURP_SHA256`, and `LOADER_SHA256` in sync and verify hashes from a trusted source before updating them.
-- Oracle JDK 21 / JRE 8 installer downloads on Windows are not hash-verified by this project because Oracle does not publish stable, machine-readable hashes for those executables. Pre-install the JDK/JRE yourself if you do not want to trust Oracle's distribution channel.
+- Oracle JDK 21 / JRE 8 installer downloads on Windows are verified against the hashes in `JDK21_SHA256` and `JRE8_SHA256`. Keep those files in sync with the actual binaries downloaded from Oracle; pre-install the JDK/JRE yourself if you do not want to trust Oracle's distribution channel.
 ## Attributions
 
 - `loader.jar`: [h3110w0r1d-y/BurpLoaderKeygen](https://github.com/h3110w0r1d-y/BurpLoaderKeygen)
